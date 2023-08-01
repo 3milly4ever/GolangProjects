@@ -126,7 +126,7 @@ func main() {
 	// fmt.Println(testBucket.search("RANDY"))
 	// fmt.Println(testBucket.search("ERIC"))
 }
-
+//emils
 // init will create a bucket in each slot of the hash table
 func Init() *HashTable {
 	result := &HashTable{}
