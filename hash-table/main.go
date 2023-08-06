@@ -28,6 +28,7 @@ func hash(key string) int {
 	for _, v := range key {
 		sum += int(v) //so each letter is getting changed to an integer and getting added up
 	}
+	//we get the index, or the numerical value that corresponds to a poisition in the hash table
 	return sum % ArraySize
 }
 
@@ -126,7 +127,8 @@ func main() {
 	// fmt.Println(testBucket.search("RANDY"))
 	// fmt.Println(testBucket.search("ERIC"))
 }
-//emils
+
+// emils
 // init will create a bucket in each slot of the hash table
 func Init() *HashTable {
 	result := &HashTable{}

@@ -18,6 +18,7 @@ func NewServer(listenAddr string, store store.Store) *Server {
 	}
 }
 
+// you can make a separate file in this api package for all handlers if there's a lot, or for easy access in general. but don't make a bunch of folders.
 func (s *Server) handleGetUserByID(w http.ResponseWriter, r *http.Request) {
 	user := s.store.Get(10)
 	json.NewEncoder(w).Encode(user)
