@@ -1,17 +1,20 @@
 package store
 
-import "structure/types"
+import (
+	"database/sql"
+	"structure/types"
+)
 
-type MemoryStore struct {
+type MySQLStore struct {
+	db *sql.DB
 }
 
-func NewMemoryStore() *MemoryStore {
-	return &MemoryStore{}
-}
+// func NewMemoryStore() *MemoryStore {
+// 	return &MemoryStore{}
+// }
 
-func (s *MemoryStore) Get(id int) *types.User {
-	return &types.User{
-		ID:   1,
-		Name: "Foo",
-	}
+func (s *MySQLStore) Get(id int) *types.User {
+	user := &types.User{}
+	err := 
+
 }

@@ -87,6 +87,8 @@ func main() {
 
 	go sendMessageToServer(s.msgch, "Love you")
 	//ensures that the main function doesn't exit and keeps the goroutines running.
+
+	fmt.Println("The server has shut down")
 	<-done
 	<-done
 }

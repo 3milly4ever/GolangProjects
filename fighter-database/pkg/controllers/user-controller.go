@@ -38,7 +38,7 @@ func HandleGetUserByIDRequest(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Error parsing into time object", http.StatusInternalServerError)
 	}
 
-	user.DateJoined = dateJoined.Format("2006-01-02")
+	user.DateJoined = dateJoined.Format("2006-01-02") //the format has a time receiver and a return of type string
 
 	jsonResponse, err := json.Marshal(user)
 	if err != nil {
