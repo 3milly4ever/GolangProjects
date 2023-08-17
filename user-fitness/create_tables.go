@@ -23,6 +23,8 @@ func CreateAllTables(db *sql.DB) error {
 
 	tableData := []store.TableDefinition{
 		{
+			//dont expose internal id primary key to apis for security, others can get user info, expose fake id for api
+			//generate uuids, replace auto increment with uuid which will be a string. a complex number that is impossible to guess.
 			Name: "Users",
 			Fields: `
             id INT AUTO_INCREMENT PRIMARY KEY,

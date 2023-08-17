@@ -3,7 +3,7 @@ package types
 import "fmt"
 
 type User struct {
-	ID         int    `json:"id"`
+	ID         int64  `json:"id"`
 	Name       string `json:"name"`
 	Email      string `json:"email"`
 	Weight     int    `json:"weight"`
@@ -21,29 +21,29 @@ type UserLinks struct {
 }
 
 // creates a new user
-func NewUser(ID int, Name string, Email string, Weight int, Goal string, Regimen string, DateJoined string) *User {
-	var user User
-	links := CreateUserHypermediaLinks(user.ID)
-	user.Links = links
+func NewUser(ID int64, Name string, Email string, Weight int, Goal string, Regimen string, DateJoined string, links UserLinks) *User {
+	//	var user User
+	//links := CreateUserHypermediaLinks(ID)
+	//	user.Links = links
 
 	return &User{
 		ID:         ID,
 		Name:       Name,
-		Email:      user.Email,
-		Weight:     user.Weight,
-		Goal:       user.Goal,
-		Regimen:    user.Regimen,
-		DateJoined: user.DateJoined,
+		Email:      Email,
+		Weight:     Weight,
+		Goal:       Goal,
+		Regimen:    Regimen,
+		DateJoined: DateJoined,
 		Links:      links,
 	}
 }
 
 // creates hypermedialinks
-func CreateUserHypermediaLinks(id int) UserLinks {
+func CreateUserHypermediaLinks(id int64) UserLinks {
 	baseURL := "/users/"
 	return UserLinks{
 		Self:   fmt.Sprintf("%s%d", baseURL, id),
-		Update: fmt.Sprintf("%s%d/update", baseURL, id),
-		Delete: fmt.Sprintf("%s%d/delete", baseURL, id),
+		Update: fmt.Sprintf("%s%d", baseURL, id),
+		Delete: fmt.Sprintf("%s%d", baseURL, id),
 	}
 }

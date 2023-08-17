@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"fmt"
 	"net/http"
+	"strings"
 	"user-fitness/logger"
 	"user-fitness/store"
 
@@ -65,10 +66,57 @@ func (s *Server) CloseDB(logger logger.Logger) {
 	}
 }
 
-func (s *Server) RegisterUserRoutes() {
-	http.HandleFunc("/users/", s.store.HandleInsertUser)
-	http.HandleFunc("/users/delete/{id:[0-9]+}", s.store.HandleDeleteUser)
-	http.HandleFunc("/users/update/{id:[0-9]+}", s.store.HandleUpdateUser)
-	http.HandleFunc("/users/all", s.store.HandleGetAllUsers)
-	http.HandleFunc("/users/{id:[0-9]+}", s.store.HandleGetUserById)
+func (s *Server) HandleUserRequests(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case "GET":
+		if strings.HasPrefix(r.URL.Path, "/users/") {
+			if r.URL.Path == "/users/" {
+				s.store.HandleGetAllUsers(w, r)
+			} else if strings.HasPrefix(r.URL.Path, "/users/") {
+				// Extract the user ID from the URL path
+				parts := strings.Split(r.URL.Path, "/")
+				if len(parts) == 3 && parts[2] != "" {
+					s.store.HandleGetUserById(w, r)
+				} else {
+					http.Error(w, "Invalid user ID", http.StatusBadRequest)
+				}
+			} else {
+				http.Error(w, "Invalid endpoint", http.StatusNotFound)
+			}
+		} else {
+			http.Error(w, "Invalid endpoint", http.StatusNotFound)
+		}
+	case "POST":
+		if r.URL.Path == "/users/" {
+			s.store.HandleInsertUser(w, r)
+		} else {
+			http.Error(w, "Invalid endpoint", http.StatusNotFound)
+		}
+	case "DELETE":
+		if strings.HasPrefix(r.URL.Path, "/users/") {
+			// Extract the user ID from the URL path
+			parts := strings.Split(r.URL.Path, "/")
+			if len(parts) == 3 && parts[2] != "" {
+				s.store.HandleDeleteUser(w, r)
+			} else {
+				http.Error(w, "Invalid user ID", http.StatusBadRequest)
+			}
+		} else {
+			http.Error(w, "Invalid endpoint", http.StatusNotFound)
+		}
+	case "PUT":
+		if strings.HasPrefix(r.URL.Path, "/users/") {
+			// Extract the user ID from the URL path
+			parts := strings.Split(r.URL.Path, "/")
+			if len(parts) == 3 && parts[2] != "" {
+				s.store.HandleUpdateUser(w, r)
+			} else {
+				http.Error(w, "Invalid user ID", http.StatusBadRequest)
+			}
+		} else {
+			http.Error(w, "Invalid endpoint", http.StatusNotFound)
+		}
+	default:
+		http.Error(w, "Invalid method", http.StatusMethodNotAllowed)
+	}
 }

@@ -32,7 +32,7 @@ func main() {
 
 	myStore := store.NewMySqlStore(logger, db)
 	server := api.NewServer("localhost:9090", logger, myStore)
-	server.RegisterUserRoutes()
+	http.HandleFunc("/users/", server.HandleUserRequests)
 
 	err = CreateAllTables(db)
 	if err != nil {

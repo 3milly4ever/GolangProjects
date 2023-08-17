@@ -5,19 +5,18 @@ import (
 	"fighter-database/pkg/models"
 	f "fmt"
 	"net/http"
-	"strconv"
 	"strings"
 	"time"
 )
 
 // get user by id handler
-func HandleGetUserByIDRequest(w http.ResponseWriter, r *http.Request) {
+func HandleGetUserByIDRequest(w http.ResponseWriter, r *http.Request, userID int) {
 	if r.Method != http.MethodGet {
 		http.Error(w, "Invalid request method, should be get", http.StatusMethodNotAllowed)
 	}
-
-	userIDStr := strings.TrimPrefix(r.URL.Path, "/users/")
-	userID, err := strconv.Atoi(userIDStr)
+	var err error
+	// userIDStr := strings.TrimPrefix(r.URL.Path, "/users/id/")
+	// userID, err := strconv.Atoi(userIDStr)
 	if err != nil {
 		http.Error(w, "Invalid user id: ", http.StatusBadRequest)
 		return
@@ -84,7 +83,7 @@ func HandleGetAllUsersRequest(w http.ResponseWriter, r *http.Request) {
 }
 
 // create user
-func HandleCreateUserRequest(w http.ResponseWriter, r *http.Request) {
+func HandleCreateUserRequest(w http.ResponseWriter, r *http.Request, userID int) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "Invalid request method, should be post", http.StatusMethodNotAllowed)
 		return
@@ -105,14 +104,14 @@ func HandleCreateUserRequest(w http.ResponseWriter, r *http.Request) {
 }
 
 // update user
-func HandleUpdateUserRequest(w http.ResponseWriter, r *http.Request) {
+func HandleUpdateUserRequest(w http.ResponseWriter, r *http.Request, userID int) {
 	if r.Method != http.MethodPut {
 		http.Error(w, "Invalid request method, should be put", http.StatusMethodNotAllowed)
 		return
 	}
-
-	userIDStr := strings.TrimPrefix(r.URL.Path, "/users/update/")
-	userID, err := strconv.Atoi(userIDStr)
+	var err error
+	// userIDStr := strings.TrimPrefix(r.URL.Path, "/users/update/")
+	// userID, err := strconv.Atoi(userIDStr)
 	if err != nil {
 		http.Error(w, "Invalid user id: ", userID)
 	}
@@ -132,15 +131,15 @@ func HandleUpdateUserRequest(w http.ResponseWriter, r *http.Request) {
 }
 
 // delete user
-func HandleDeleteUserRequest(w http.ResponseWriter, r *http.Request) {
+func HandleDeleteUserRequest(w http.ResponseWriter, r *http.Request, userID int) {
 	if r.Method != http.MethodDelete {
 		http.Error(w, "Invalid request method, should delete", http.StatusMethodNotAllowed)
 		return
 	}
-
-	userIDStr := strings.TrimPrefix(r.URL.Path, "/users/delete/") // get id from url path
-
-	userID, err := strconv.Atoi(userIDStr) // convert id to int for our Go functions
+	var err error
+	// vars := mux.Vars(r)
+	// userIDStr := vars["id"]                // get id from url path
+	// userID, err := strconv.Atoi(userIDStr) // convert id to int for our Go functions
 	if err != nil {
 		http.Error(w, "Invalid userID", http.StatusBadRequest)
 		return

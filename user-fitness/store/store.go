@@ -89,7 +89,7 @@ func (s *MySqlStore) CreateTableWithFields(tableName string, fields string) erro
 // will get a user based on ID
 func (s *MySqlStore) GetUserById(id int) (types.User, error) {
 	getUserByIdQuery := `
-	SELECT * FROM user
+	SELECT * FROM Users
 	WHERE id = ?
 	`
 	//create new instance of a type that satisfies the Logger interface.
@@ -107,6 +107,9 @@ func (s *MySqlStore) GetUserById(id int) (types.User, error) {
 		s.logger.Error("database error: %v", err)
 		return types.User{}, err //returns empty user
 	}
+
+	links := types.CreateUserHypermediaLinks(user.ID)
+	user.Links = links
 	return user, nil
 }
 
@@ -154,20 +157,27 @@ func (s *MySqlStore) HandleGetUserById(w http.ResponseWriter, r *http.Request) {
 }
 
 // will create/insert a new user into the database
-func (s *MySqlStore) InsertUser(user *types.User) error {
+func (s *MySqlStore) InsertUser(user *types.User) (int64, error) {
 	insertQuery := `
-	INSERT INTO user (name, email, weight, goal, regimen, date_joined)
+	INSERT INTO Users (name, email, weight, goal, regimen, date_joined)
 	VALUES(?, ?, ?, ?, ?, ?)
 	`
 
-	_, err := s.db.Exec(insertQuery, user.Name, user.Email, user.Weight, user.Goal, user.Regimen, user.DateJoined)
+	result, err := s.db.Exec(insertQuery, user.Name, user.Email, user.Weight, user.Goal, user.Regimen, user.DateJoined)
 	//error check and provide user name
 	if err != nil {
 		s.logger.Error("Error inserting user %s: %v", user.Name, err)
-		return err
+		return 0, err
 	}
 
-	return nil
+	lastInsertID, err := result.LastInsertId()
+	if err != nil {
+		s.logger.Error("Error getting last inserted ID: %v", err)
+		return 0, err
+	}
+
+	s.logger.Info("Successfully inserted! User details: Name=%s, Email=%s, Weight=%d, Goal=%s, Regimen=%s, DateJoined=%s", user.Name, user.Email, user.Weight, user.Goal, user.Regimen, user.DateJoined)
+	return lastInsertID, nil
 }
 
 // will handle the http request to create/insert a new user
@@ -183,17 +193,27 @@ func (s *MySqlStore) HandleInsertUser(w http.ResponseWriter, r *http.Request) {
 		s.logger.HttpError(w, http.StatusBadRequest, "Invalid JSON data during post")
 		return
 	}
+
+	links := types.CreateUserHypermediaLinks(0)
 	//now that we decoded the body into user we can create a new user with the credentials
-	newUser := types.NewUser(user.ID, user.Name, user.Email, user.Weight, user.Goal, user.Regimen, user.DateJoined)
-	s.InsertUser(newUser)
+	newUser := types.NewUser(user.ID, user.Name, user.Email, user.Weight, user.Goal, user.Regimen, user.DateJoined, links)
+	insertedID, err := s.InsertUser(newUser)
+	if err != nil {
+		s.logger.HttpError(w, http.StatusInternalServerError, "Error inserting user")
+		return
+	}
+	links = types.CreateUserHypermediaLinks(insertedID)
+	userWithLinks := types.NewUser(insertedID, user.Name, user.Email, user.Weight, user.Goal, user.Regimen, user.DateJoined, links)
 	w.WriteHeader(http.StatusCreated)
+	jsonResponse, _ := json.Marshal(userWithLinks)
+	w.Write(jsonResponse)
 	fmt.Fprintln(w, "Data posted successfuly!")
 }
 
 // delete a user from the database
 func (s *MySqlStore) DeleteUser(id int) error {
 	deleteQuery := `
-	DELETE * FROM user
+	DELETE FROM Users
 	WHERE id = ?
 	`
 
@@ -212,7 +232,7 @@ func (s *MySqlStore) HandleDeleteUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	userIDStr := strings.TrimPrefix(r.URL.Path, "users/delete/") //get id from url path
+	userIDStr := strings.TrimPrefix(r.URL.Path, "/users/") //get id from url path
 	userID, err := strconv.Atoi(userIDStr)
 	if err != nil {
 		s.logger.HttpError(w, http.StatusBadRequest, "Invalid user ID")
@@ -232,14 +252,14 @@ func (s *MySqlStore) HandleDeleteUser(w http.ResponseWriter, r *http.Request) {
 // updates user in our database
 func (s *MySqlStore) UpdateUser(id int, user *types.User) error {
 	updateQuery := `
-	UPDATE user
+	UPDATE Users
 	SET name = ?, email = ?, weight = ?, goal = ?, regimen = ?, date_joined = ?
 	WHERE id = ?
 	`
 
 	_, err := s.db.Exec(updateQuery, user.Name, user.Email, user.Weight, user.Goal, user.Regimen, user.DateJoined, id)
 	if err != nil {
-		s.logger.Error("Error deleting user with id: %d", id)
+		s.logger.Error("Error updating user with id: %d", id)
 		return err
 	}
 
@@ -253,21 +273,21 @@ func (s *MySqlStore) HandleUpdateUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	userIdStr := strings.TrimPrefix(r.URL.Path, "/users/update/")
+	userIdStr := strings.TrimPrefix(r.URL.Path, "/users/")
 	userID, err := strconv.Atoi(userIdStr)
 	if err != nil {
 		s.logger.HttpError(w, http.StatusBadRequest, "Error converting user id string to integer")
 		return
 	}
 
-	var user *types.User
-	err = json.NewDecoder(r.Body).Decode(user)
+	var user types.User
+	err = json.NewDecoder(r.Body).Decode(&user)
 	if err != nil {
 		s.logger.HttpError(w, http.StatusUnprocessableEntity, "Error decoding the JSON data")
 		return
 	}
-
-	updatedUser := types.NewUser(user.ID, user.Name, user.Email, user.Weight, user.Goal, user.Regimen, user.DateJoined)
+	links := types.CreateUserHypermediaLinks(user.ID)
+	updatedUser := types.NewUser(user.ID, user.Name, user.Email, user.Weight, user.Goal, user.Regimen, user.DateJoined, links)
 
 	s.UpdateUser(userID, updatedUser)
 	w.WriteHeader(http.StatusCreated)
@@ -278,7 +298,7 @@ func (s *MySqlStore) HandleUpdateUser(w http.ResponseWriter, r *http.Request) {
 func (s *MySqlStore) GetAllUsers() ([]types.User, error) {
 
 	getAllQuery := `
-	SELECT * FROM user
+	SELECT * FROM Users
 	`
 	var userData []types.User
 
@@ -297,6 +317,8 @@ func (s *MySqlStore) GetAllUsers() ([]types.User, error) {
 			return nil, err
 		}
 
+		links := types.CreateUserHypermediaLinks(user.ID)
+		user.Links = links
 		userData = append(userData, user)
 	}
 
