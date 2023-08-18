@@ -24,6 +24,10 @@ func NewLogger() Logger {
 	return &StdLogger{}
 }
 
+// func AddRequestID(ctx context.Contecxt) context.Context{
+
+// }
+
 // this will be called on the logger struct, which is a type of the logger interface
 func (l *StdLogger) Error(format string, args ...interface{}) {
 	//allows us to format messages with the errors, instead of just having the error by itself

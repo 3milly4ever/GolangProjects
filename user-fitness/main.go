@@ -14,33 +14,35 @@ import (
 func main() {
 	dataSourceName := "root:Em50goats@tcp(localhost:3306)/user_fitness"
 
-	logger := logger.NewLogger()
+	// logger := logger.NewLogger()
+	sl := store.NewMySqlLogger(logger.NewLogger())
+
 	db, err := sql.Open("mysql", dataSourceName)
 
 	if err != nil {
-		logger.Error("Error connecting to the database: %v", err)
+		sl.Logger.Error("Error connecting to the database: %v", err)
 		return
 	}
 	defer db.Close()
 	err = db.Ping()
 
 	if err != nil {
-		logger.Error("Error pinging the database: %v", err)
+		sl.Logger.Error("Error pinging the database: %v", err)
 		return
 	}
-	logger.Info("Connection to the database successful")
+	sl.Logger.Info("Connection to the database successful")
 
-	myStore := store.NewMySqlStore(logger, db)
-	server := api.NewServer("localhost:9090", logger, myStore)
+	myStore := store.NewMySqlStore(db)
+	server := api.NewServer("localhost:9090", myStore)
 	http.HandleFunc("/users/", server.HandleUserRequests)
 
 	err = CreateAllTables(db)
 	if err != nil {
-		logger.Error("Error creating tables", err)
+		sl.Logger.Error("Error creating tables", err)
 		return
 	}
 
-	logger.Info("Server listening on :9090")
+	sl.Logger.Info("Server listening on :9090")
 	log.Fatal(http.ListenAndServe(":9090", nil))
 
 }

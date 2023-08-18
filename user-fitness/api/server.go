@@ -15,7 +15,7 @@ type Server struct {
 	listenAddr string
 	//we inject the logger interface
 	logger logger.Logger
-	store  store.Store
+	store  *store.MySqlStore
 	db     *sql.DB
 }
 
@@ -23,11 +23,11 @@ var Logger = logger.NewLogger()
 
 // var Store = store.NewMySqlStore(Logger)
 
-func NewServer(listenAddr string, logger logger.Logger, store store.Store) *Server {
+func NewServer(listenAddr string, store *store.MySqlStore) *Server {
 	return &Server{
 		listenAddr: listenAddr,
-		logger:     logger,
-		store:      store,
+		// logger:     logger,
+		store: store,
 	}
 }
 
@@ -67,16 +67,23 @@ func (s *Server) CloseDB(logger logger.Logger) {
 }
 
 func (s *Server) HandleUserRequests(w http.ResponseWriter, r *http.Request) {
+	sl := store.NewMySqlLogger(logger.NewLogger())
 	switch r.Method {
 	case "GET":
 		if strings.HasPrefix(r.URL.Path, "/users/") {
+			//if its only /users/ and nothing else then it will get all
 			if r.URL.Path == "/users/" {
-				s.store.HandleGetAllUsers(w, r)
+				s.store.HandleGetAllUsers(w, r, sl)
+				//if the path doesnt exactly match /users/ but still starts with /users/
 			} else if strings.HasPrefix(r.URL.Path, "/users/") {
 				// Extract the user ID from the URL path
 				parts := strings.Split(r.URL.Path, "/")
+				//parts is a slice of strings that takes, for example, the localhost:9090/users/3 path.
+				//then splits it according to the delimiter /. then forms an array such as parts = ["localhost:9090", "users", "3"].
+				//the if statement checks if the length of the array is 3, and if index 2 of the parts array is not an empty string.
+				//if thats true then our handlegetuserbyid is called.
 				if len(parts) == 3 && parts[2] != "" {
-					s.store.HandleGetUserById(w, r)
+					s.store.HandleGetUserById(w, r, sl)
 				} else {
 					http.Error(w, "Invalid user ID", http.StatusBadRequest)
 				}
@@ -88,7 +95,7 @@ func (s *Server) HandleUserRequests(w http.ResponseWriter, r *http.Request) {
 		}
 	case "POST":
 		if r.URL.Path == "/users/" {
-			s.store.HandleInsertUser(w, r)
+			s.store.HandleInsertUser(w, r, sl)
 		} else {
 			http.Error(w, "Invalid endpoint", http.StatusNotFound)
 		}
@@ -97,7 +104,7 @@ func (s *Server) HandleUserRequests(w http.ResponseWriter, r *http.Request) {
 			// Extract the user ID from the URL path
 			parts := strings.Split(r.URL.Path, "/")
 			if len(parts) == 3 && parts[2] != "" {
-				s.store.HandleDeleteUser(w, r)
+				s.store.HandleDeleteUser(w, r, sl)
 			} else {
 				http.Error(w, "Invalid user ID", http.StatusBadRequest)
 			}
@@ -109,7 +116,7 @@ func (s *Server) HandleUserRequests(w http.ResponseWriter, r *http.Request) {
 			// Extract the user ID from the URL path
 			parts := strings.Split(r.URL.Path, "/")
 			if len(parts) == 3 && parts[2] != "" {
-				s.store.HandleUpdateUser(w, r)
+				s.store.HandleUpdateUser(w, r, sl)
 			} else {
 				http.Error(w, "Invalid user ID", http.StatusBadRequest)
 			}

@@ -18,8 +18,9 @@ import (
 )
 
 func CreateAllTables(db *sql.DB) error {
-	log := logger.NewLogger()
-	myStore := store.NewMySqlStore(log, db)
+	// log := logger.NewLogger()
+	myStore := store.NewMySqlStore(db)
+	sl := store.NewMySqlLogger(logger.NewLogger())
 
 	tableData := []store.TableDefinition{
 		{
@@ -37,7 +38,7 @@ func CreateAllTables(db *sql.DB) error {
             `,
 		},
 	}
-	err := myStore.CreateTables(tableData)
+	err := myStore.CreateTables(tableData, sl)
 	if err != nil {
 		return err
 	}
