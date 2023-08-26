@@ -4,10 +4,12 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"math"
 	"net/http"
 	"strconv"
 	"strings"
 	"time"
+	"user-fitness/caching"
 	"user-fitness/logger"
 	"user-fitness/types"
 
@@ -15,13 +17,27 @@ import (
 )
 
 type MySqlStore struct {
-	db *sql.DB
+	db    *sql.DB
+	cache caching.Cache
 }
 
 // this makes sense if we have more fields in the MySqlStore struct.
-func NewMySqlStore(db *sql.DB) *MySqlStore {
+func NewMySqlStore(db *sql.DB, cache caching.Cache) *MySqlStore {
 	return &MySqlStore{
 		db,
+		cache,
+	}
+}
+
+type StoreWithCache struct {
+	*MySqlStore
+	cache caching.Cache
+}
+
+func NewStoreWithCache(s *MySqlStore, cache caching.Cache) *StoreWithCache {
+	return &StoreWithCache{
+		MySqlStore: s,
+		cache:      cache,
 	}
 }
 
@@ -34,6 +50,7 @@ type Store interface {
 	CreateTableWithFields(tableName string, fields string) error
 	CreateTables(tables []TableDefinition, sl *SqlLogger) error
 	NewMySqlLogger() SqlLogger
+	GetUserByIdFromDB(id int, sl *SqlLogger) (types.User, error)
 }
 
 type SqlLogger struct {
@@ -89,15 +106,18 @@ func (s *MySqlStore) CreateTableWithFields(tableName string, fields string) erro
 }
 
 // will get a user based on ID
-func (s *MySqlStore) GetUserById(id int, sl *SqlLogger) (types.User, error) {
+func (s *MySqlStore) GetUserByIdFromDB(id int, sl *SqlLogger) (types.User, error) {
 	getUserByIdQuery := `
 	SELECT * FROM Users
 	WHERE id = ?
 	`
+	sl.Logger.Info("Getting user from database")
 	//create new instance of a type that satisfies the Logger interface.
 	row := s.db.QueryRow(getUserByIdQuery, id)
 
 	var user types.User
+
+	sl.Logger.Info("Fetching user with ID: %d", id)
 
 	err := row.Scan(&user.ID, &user.Name, &user.Email, &user.Weight, &user.Goal, &user.Regimen, &user.DateJoined)
 
@@ -112,16 +132,60 @@ func (s *MySqlStore) GetUserById(id int, sl *SqlLogger) (types.User, error) {
 
 	links := types.CreateUserHypermediaLinks(user.ID)
 	user.Links = links
+	sl.Logger.Info("Fetched user successfully: %v", user)
+	return user, nil
+}
+
+// this get user by ID incorporates caching
+func (sc *StoreWithCache) GetUserById(id int, sl *SqlLogger) (types.User, error) {
+	defer func() {
+		if r := recover(); r != nil {
+			sl.Logger.Error("Panic occurred: %v", r)
+		}
+	}()
+
+	cacheKey := fmt.Sprintf("user:%d", id)
+
+	//Try to get user from cache
+	cachedUserBytes, err := sc.cache.Get(cacheKey)
+	if err == nil && cachedUserBytes != nil {
+		var cachedUser types.User
+		if err := json.Unmarshal(cachedUserBytes, &cachedUser); err == nil {
+			sl.Logger.Info("Found cached user data for ID %d", id)
+			return cachedUser, nil
+		} else {
+			sl.Logger.Error("Error unmarshaling cached user data:", err)
+		}
+
+	}
+
+	//fetch from database if user is not in cache
+
+	user, err := sc.MySqlStore.GetUserByIdFromDB(id, sl)
+	if err != nil {
+		sl.Logger.Error("Error fetching user from the database:", err)
+		return types.User{}, err
+	}
+
+	//cache the retrieved user so in the future its data can be accessed from the cache
+	userJSON, err := json.Marshal(user)
+	if err == nil {
+		sl.Logger.Info("User JSON data being cached: %s", userJSON)
+		err = sc.cache.Set(cacheKey, userJSON, time.Hour)
+		if err != nil {
+			sl.Logger.Error("Error caching user data:", err)
+			sl.Logger.Error("Failed to create user with ID %d: %v", id, err)
+		} else {
+			sl.Logger.Info("Successfully cached user data")
+		}
+	} else {
+		sl.Logger.Error("Error marshaling user data:", err)
+	}
 	return user, nil
 }
 
 // handles the GET http request to get user by id
 func (s *MySqlStore) HandleGetUserById(w http.ResponseWriter, r *http.Request, sl *SqlLogger) {
-	if r.Method != http.MethodGet {
-		sl.Logger.HttpError(w, http.StatusMethodNotAllowed, "Invalid method request, should be GET")
-		return
-	}
-
 	userIDStr := strings.TrimPrefix(r.URL.Path, "/users/")
 	userID, err := strconv.Atoi(userIDStr)
 	if err != nil {
@@ -129,7 +193,8 @@ func (s *MySqlStore) HandleGetUserById(w http.ResponseWriter, r *http.Request, s
 		return //return so the function ends after an error
 	}
 
-	user, err := s.GetUserById(userID, sl)
+	user, err := s.GetUserByIdFromDB(userID, sl)
+	sl.Logger.Info("first check date is in format: %v", user.DateJoined)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			sl.Logger.HttpError(w, http.StatusNotFound, err.Error())
@@ -142,6 +207,7 @@ func (s *MySqlStore) HandleGetUserById(w http.ResponseWriter, r *http.Request, s
 	//we parse(convert) the dateJoined string into a time value
 	dateJoined, err := time.Parse("2006-01-02", user.DateJoined)
 	if err != nil {
+		sl.Logger.Info("date is in format: %v", user.DateJoined)
 		sl.Logger.HttpError(w, http.StatusInternalServerError, "Error parsing into time object")
 		return
 	}
@@ -184,11 +250,6 @@ func (s *MySqlStore) InsertUser(user *types.User, sl *SqlLogger) (int64, error) 
 
 // will handle the http request to create/insert a new user
 func (s *MySqlStore) HandleInsertUser(w http.ResponseWriter, r *http.Request, sl *SqlLogger) {
-	if r.Method != http.MethodPost {
-		sl.Logger.HttpError(w, http.StatusMethodNotAllowed, "Invalid request method, should be post")
-		return
-	}
-	//
 	var user types.User                          //we will decode the json data into this
 	err := json.NewDecoder(r.Body).Decode(&user) //we parse the data the client sent in json to create new user
 	if err != nil {
@@ -229,11 +290,6 @@ func (s *MySqlStore) DeleteUser(id int, sl *SqlLogger) error {
 
 // handles http request for deleting user from database
 func (s *MySqlStore) HandleDeleteUser(w http.ResponseWriter, r *http.Request, sl *SqlLogger) {
-	if r.Method != http.MethodDelete {
-		sl.Logger.HttpError(w, http.StatusBadRequest, "Error, wrong request should be DELETE")
-		return
-	}
-
 	userIDStr := strings.TrimPrefix(r.URL.Path, "/users/") //get id from url path
 	userID, err := strconv.Atoi(userIDStr)
 	if err != nil {
@@ -270,11 +326,6 @@ func (s *MySqlStore) UpdateUser(id int, user *types.User, sl *SqlLogger) error {
 
 // handles the http request to update the user
 func (s *MySqlStore) HandleUpdateUser(w http.ResponseWriter, r *http.Request, sl *SqlLogger) {
-	if r.Method != http.MethodPut {
-		sl.Logger.HttpError(w, http.StatusMethodNotAllowed, "Error, wrong request should be put")
-		return
-	}
-
 	userIdStr := strings.TrimPrefix(r.URL.Path, "/users/")
 	userID, err := strconv.Atoi(userIdStr)
 	if err != nil {
@@ -329,31 +380,139 @@ func (s *MySqlStore) GetAllUsers(sl *SqlLogger) ([]types.User, error) {
 
 // handles the http request to get all users
 func (s *MySqlStore) HandleGetAllUsers(w http.ResponseWriter, r *http.Request, sl *SqlLogger) {
-	if r.Method != http.MethodGet {
-		sl.Logger.HttpError(w, http.StatusMethodNotAllowed, "Error, invalid request to get all fighters")
+	//getting query parameters for page and pageSize
+	pageStr := r.URL.Query().Get("page")
+	pageSizeStr := r.URL.Query().Get("pageSize")
+
+	//Parse page and pageSize values (or use defaults)
+	page, err := strconv.Atoi(pageStr)
+	if err != nil || page < 1 {
+		page = 1
+	}
+
+	pageSize, err := strconv.Atoi(pageSizeStr)
+	if err != nil || pageSize < 1 {
+		pageSize = 10
+	}
+
+	//Calculate the offset based on page and pageSize
+	offset := (page - 1) * pageSize
+
+	//Call GetUsersWithPagination to retrieve users for the requested page
+	users, totalUsers, err := s.GetUsersWithPagination(offset, pageSize, sl)
+	if err != nil {
+		sl.Logger.HttpError(w, http.StatusInternalServerError, "Error retrieving users")
 		return
 	}
 
-	users, err := s.GetAllUsers(sl)
-	if err != nil {
-		sl.Logger.HttpError(w, http.StatusInternalServerError, fmt.Sprintf("error retreiving all users: %v", err))
-		return
+	//calculate total pages
+	totalPages := int(math.Ceil(float64(totalUsers) / float64(pageSize)))
+
+	//create pagination links
+	baseURL := "/users/"
+	links := types.CreatePaginationLinks(baseURL, page, pageSize, totalUsers)
+
+	//construct the paginated response
+	response := types.PaginatedUserResponse{
+		Users:       users,
+		TotalUsers:  totalUsers,
+		TotalPages:  totalPages,
+		CurrentPage: page,
+		PageSize:    pageSize,
+		Links:       links,
 	}
-	//convert the date strings to time objects
-	for i := range users {
-		dateJoined, err := time.Parse("2006-01-02", users[i].DateJoined)
+
+	for i := range response.Users {
+		dateJoined, err := time.Parse("2006-01-02", response.Users[i].DateJoined)
 		if err != nil {
 			sl.Logger.HttpError(w, http.StatusInternalServerError, "Error converting date strings to time objects")
 			return
 		}
-		users[i].DateJoined = dateJoined.Format("2006-01-02")
+		response.Users[i].DateJoined = dateJoined.Format("2006-01-02")
 	}
 
-	jsonResponse, err := json.Marshal(users)
+	jsonResponse, err := json.Marshal(response)
 	if err != nil {
 		sl.Logger.HttpError(w, http.StatusInternalServerError, "Error marshalling all users")
 		return
 	}
 
 	WriteJSONResponse(w, http.StatusOK, jsonResponse)
+}
+
+func (s *MySqlStore) GetUsersWithPagination(offset, pageSize int, sl *SqlLogger) ([]types.User, int, error) {
+	//get total number of users in the database
+	totalUsers, err := s.GetTotalUsers()
+	if err != nil {
+		return nil, 0, err
+	}
+
+	//now we get the users for the specified page using LIMIT and OFFSET
+	getUsersQuery := `
+	SELECT * FROM Users
+	LIMIT ? OFFSET ?
+	`
+	rows, err := s.db.Query(getUsersQuery, pageSize, offset)
+	if err != nil {
+		sl.Logger.Error("Error querying users: %v", err)
+		return nil, 0, err
+	}
+	defer rows.Close()
+
+	//we iterate through the rows and parse data
+	var users []types.User
+	for rows.Next() {
+		var user types.User
+		err := rows.Scan(&user.ID, &user.Name, &user.Email, &user.Weight, &user.Goal, &user.Regimen, &user.DateJoined)
+		if err != nil {
+			return nil, 0, err
+		}
+
+		links := types.CreateUserHypermediaLinks(user.ID)
+		user.Links = links
+		users = append(users, user)
+	}
+
+	return users, totalUsers, nil
+}
+
+func (sc *StoreWithCache) GetUsersWithPaginationCached(offset, pageSize int, sl *SqlLogger) ([]types.User, int, error) {
+	//we create cache key based off of offset and pagSize
+	cacheKey := fmt.Sprintf("users:%d:%d", offset, pageSize)
+
+	//1.try to get paginated user data with cache
+	cachedUsersJSON, err := sc.cache.Get(cacheKey)
+	if err == nil && cachedUsersJSON != nil {
+		//If cached data exists, we unmarshal and return it
+		var cachedUsers []types.User
+		if err := json.Unmarshal([]byte(cachedUsersJSON), &cachedUsers); err == nil {
+			return cachedUsers, len(cachedUsers), nil
+		}
+	}
+	//2.if user data not in cache then get it from database
+	users, totalUsers, err := sc.MySqlStore.GetUsersWithPagination(offset, pageSize, sl)
+	if err != nil {
+		return nil, 0, err
+	}
+	//3. if 2 then cache retrieved users data for future access
+	usersJSON, err := json.Marshal(users)
+	if err == nil {
+		err = sc.cache.Set(cacheKey, usersJSON, time.Hour)
+		if err != nil {
+			sl.Logger.Error("Failed to cache paginated users data: %v", err)
+		}
+	}
+
+	return users, totalUsers, nil
+}
+
+func (s *MySqlStore) GetTotalUsers() (int, error) {
+	//this will return the number of total users from our database
+	query := "SELECT COUNT(*) FROM Users"
+	var totalUsers int
+	err := s.db.QueryRow(query).Scan(&totalUsers)
+	if err != nil {
+		return 0, err
+	}
+	return totalUsers, nil
 }

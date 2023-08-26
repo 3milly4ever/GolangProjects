@@ -4,7 +4,9 @@ import (
 	"database/sql"
 	"fmt"
 	"net/http"
+	"strconv"
 	"strings"
+	"user-fitness/caching"
 	"user-fitness/logger"
 	"user-fitness/store"
 
@@ -16,6 +18,7 @@ type Server struct {
 	//we inject the logger interface
 	logger logger.Logger
 	store  *store.MySqlStore
+	cache  caching.Cache
 	db     *sql.DB
 }
 
@@ -73,7 +76,10 @@ func (s *Server) HandleUserRequests(w http.ResponseWriter, r *http.Request) {
 		if strings.HasPrefix(r.URL.Path, "/users/") {
 			//if its only /users/ and nothing else then it will get all
 			if r.URL.Path == "/users/" {
-				s.store.HandleGetAllUsers(w, r, sl)
+				if r.URL.Query().Get("page") != "" && r.URL.Query().Get("pageSize") != "" {
+					s.store.HandleGetAllUsers(w, r, sl)
+				}
+				// s.store.HandleGetAllUsers(w, r, sl)
 				//if the path doesnt exactly match /users/ but still starts with /users/
 			} else if strings.HasPrefix(r.URL.Path, "/users/") {
 				// Extract the user ID from the URL path
@@ -82,7 +88,15 @@ func (s *Server) HandleUserRequests(w http.ResponseWriter, r *http.Request) {
 				//then splits it according to the delimiter /. then forms an array such as parts = ["localhost:9090", "users", "3"].
 				//the if statement checks if the length of the array is 3, and if index 2 of the parts array is not an empty string.
 				//if thats true then our handlegetuserbyid is called.
+				fmt.Println("Parts array:", parts)
 				if len(parts) == 3 && parts[2] != "" {
+					// s.cache.HandleGetUserById(w, r, sl)
+					userID, err := strconv.Atoi(parts[2])
+					if err != nil {
+						http.Error(w, "Invalid user ID", http.StatusBadRequest)
+						return
+					}
+					fmt.Println("Extracted user ID:", userID)
 					s.store.HandleGetUserById(w, r, sl)
 				} else {
 					http.Error(w, "Invalid user ID", http.StatusBadRequest)

@@ -5,20 +5,19 @@ import (
 	"log"
 	"net/http"
 	"user-fitness/api"
+	"user-fitness/caching"
 	"user-fitness/logger"
 	"user-fitness/store"
 
+	"github.com/go-redis/redis"
 	_ "github.com/go-sql-driver/mysql"
 )
 
 func main() {
 	dataSourceName := "root:Em50goats@tcp(localhost:3306)/user_fitness"
-
-	// logger := logger.NewLogger()
 	sl := store.NewMySqlLogger(logger.NewLogger())
 
 	db, err := sql.Open("mysql", dataSourceName)
-
 	if err != nil {
 		sl.Logger.Error("Error connecting to the database: %v", err)
 		return
@@ -32,11 +31,18 @@ func main() {
 	}
 	sl.Logger.Info("Connection to the database successful")
 
-	myStore := store.NewMySqlStore(db)
+	redisClient := redis.NewClient(&redis.Options{
+		Addr:     "localhost:6379",
+		Password: "",
+		DB:       0,
+	})
+
+	cachForMyStore := caching.NewRedisCache(redisClient)
+	myStore := store.NewMySqlStore(db, cachForMyStore)
 	server := api.NewServer("localhost:9090", myStore)
 	http.HandleFunc("/users/", server.HandleUserRequests)
 
-	err = CreateAllTables(db)
+	err = CreateAllTables(myStore, db, sl)
 	if err != nil {
 		sl.Logger.Error("Error creating tables", err)
 		return

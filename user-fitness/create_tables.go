@@ -1,26 +1,16 @@
-// package main
-
-// import (
-// 	"database/sql"
-// 	"fmt"
-// 	"user-fitness/logger"
-// 	"user-fitness/store"
-
-// 	_ "github.com/go-sql-driver/mysql"
-// )
-
 package main
 
 import (
 	"database/sql"
-	"user-fitness/logger"
 	"user-fitness/store"
 )
 
-func CreateAllTables(db *sql.DB) error {
+func CreateAllTables(myStore *store.MySqlStore, db *sql.DB, sl *store.SqlLogger) error {
 	// log := logger.NewLogger()
-	myStore := store.NewMySqlStore(db)
-	sl := store.NewMySqlLogger(logger.NewLogger())
+
+	// cachForMyStore := caching.NewRedisCache(redisClient)
+	// myStore := store.NewMySqlStore(db)
+	// sl := store.NewMySqlLogger(logger.NewLogger())
 
 	tableData := []store.TableDefinition{
 		{
