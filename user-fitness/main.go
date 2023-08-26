@@ -39,7 +39,7 @@ func main() {
 
 	cachForMyStore := caching.NewRedisCache(redisClient)
 	myStore := store.NewMySqlStore(db, cachForMyStore)
-	server := api.NewServer("localhost:9090", myStore)
+	server := api.NewServer("localhost:9090", db, redisClient)
 	http.HandleFunc("/users/", server.HandleUserRequests)
 
 	err = CreateAllTables(myStore, db, sl)

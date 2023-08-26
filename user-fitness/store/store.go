@@ -78,6 +78,11 @@ func WriteJSONResponse(w http.ResponseWriter, statusCode int, jsonResponse []byt
 	w.Write(jsonResponse)
 }
 
+func (s *MySqlStore) GetUserByIdWithCache(id int, sl *SqlLogger) (types.User, error) {
+	sc := NewStoreWithCache(s, s.cache)
+	return sc.GetUserById(id, sl)
+}
+
 func (s *MySqlStore) CreateTables(tables []TableDefinition, sl *SqlLogger) error {
 	for _, table := range tables {
 		err := s.CreateTableWithFields(table.Name, table.Fields)
@@ -154,6 +159,7 @@ func (sc *StoreWithCache) GetUserById(id int, sl *SqlLogger) (types.User, error)
 			sl.Logger.Info("Found cached user data for ID %d", id)
 			return cachedUser, nil
 		} else {
+			sl.Logger.Info("User not in cache: %v, %d", cachedUserBytes, cachedUser.ID)
 			sl.Logger.Error("Error unmarshaling cached user data:", err)
 		}
 
@@ -191,6 +197,36 @@ func (s *MySqlStore) HandleGetUserById(w http.ResponseWriter, r *http.Request, s
 	if err != nil {
 		sl.Logger.HttpError(w, http.StatusBadRequest, "Invalid user id")
 		return //return so the function ends after an error
+	}
+
+	cachedUser, err := s.GetUserByIdWithCache(userID, sl)
+	if err != nil {
+		sl.Logger.Error("Error getting user from cache:", err)
+		return
+	}
+
+	if cachedUser.ID != 0 {
+		user := cachedUser
+		// User found in cache, use cached data
+
+		// We parse(convert) the dateJoined string into a time value
+		dateJoined, err := time.Parse("2006-01-02", user.DateJoined)
+		if err != nil {
+			sl.Logger.Info("date is in format: %v", user.DateJoined)
+			sl.Logger.HttpError(w, http.StatusInternalServerError, "Error parsing into time object")
+			return
+		}
+
+		user.DateJoined = dateJoined.Format("2006-01-02") // the format has a time receiver and a return of type string
+		jsonResponse, err := json.Marshal(user)
+		if err != nil {
+			sl.Logger.HttpError(w, http.StatusInternalServerError, "Error creating JSON response for user by id")
+			return
+		}
+
+		// Write the JSON response
+		WriteJSONResponse(w, http.StatusOK, jsonResponse)
+		return
 	}
 
 	user, err := s.GetUserByIdFromDB(userID, sl)

@@ -10,6 +10,7 @@ import (
 	"user-fitness/logger"
 	"user-fitness/store"
 
+	"github.com/go-redis/redis"
 	_ "github.com/go-sql-driver/mysql"
 )
 
@@ -17,20 +18,24 @@ type Server struct {
 	listenAddr string
 	//we inject the logger interface
 	logger logger.Logger
-	store  *store.MySqlStore
-	cache  caching.Cache
-	db     *sql.DB
+	store  *store.StoreWithCache
+	// cache  caching.Cache
+	db *sql.DB
 }
 
 var Logger = logger.NewLogger()
 
 // var Store = store.NewMySqlStore(Logger)
 
-func NewServer(listenAddr string, store *store.MySqlStore) *Server {
+func NewServer(listenAddr string, db *sql.DB, redisClient *redis.Client) *Server {
+	cache := caching.NewRedisCache(redisClient)
+	mySqlStore := store.NewMySqlStore(db, cache)
+	storeWithCache := store.NewStoreWithCache(mySqlStore, cache)
 	return &Server{
 		listenAddr: listenAddr,
 		// logger:     logger,
-		store: store,
+		store: storeWithCache,
+		db:    db,
 	}
 }
 
