@@ -26,6 +26,15 @@ func CreateAllTables(myStore *store.MySqlStore, db *sql.DB, sl *store.SqlLogger)
             regimen VARCHAR(255),
             date_joined DATE
             `,
+		}
+		{
+			Name: "UserCredentials",
+			Fields:`
+			id UUID PRIMARY KEY,
+			email VARCHAR(255),
+			password VARCHAR(255)
+			`,
+		}
 		},
 	}
 	err := myStore.CreateTables(tableData, sl)

@@ -143,22 +143,30 @@ func (s *MySqlStore) GetUserByIdFromDB(id int, sl *SqlLogger) (types.User, error
 
 // this get user by ID incorporates caching
 func (sc *StoreWithCache) GetUserById(id int, sl *SqlLogger) (types.User, error) {
+	//recover from panic and log the error
 	defer func() {
 		if r := recover(); r != nil {
 			sl.Logger.Error("Panic occurred: %v", r)
 		}
 	}()
-
+	//we create a cache key that we will use to either Get or Set from our redis cache
 	cacheKey := fmt.Sprintf("user:%d", id)
 
 	//Try to get user from cache
 	cachedUserBytes, err := sc.cache.Get(cacheKey)
+	//if there is no error getting the cached data with the key, and the cachedUserBytes are empty
 	if err == nil && cachedUserBytes != nil {
+		//create a cachedUser type
 		var cachedUser types.User
-		if err := json.Unmarshal(cachedUserBytes, &cachedUser); err == nil {
+		//if there is an error unmarshaling the data from the cache in bytes, and assigning it to our cachedUser variable
+		if err := json.Unmarshal(cachedUserBytes, &cachedUser);
+		//if there is no error
+		err == nil {
+			//we return the newly created cachedUser data with the now bytes data converted(unmarshaled) from the cache.
 			sl.Logger.Info("Found cached user data for ID %d", id)
 			return cachedUser, nil
 		} else {
+			//if there is an error, and the user is not in the then we do this.
 			sl.Logger.Info("User not in cache: %v, %d", cachedUserBytes, cachedUser.ID)
 			sl.Logger.Error("Error unmarshaling cached user data:", err)
 		}
@@ -166,59 +174,77 @@ func (sc *StoreWithCache) GetUserById(id int, sl *SqlLogger) (types.User, error)
 	}
 
 	//fetch from database if user is not in cache
-
 	user, err := sc.MySqlStore.GetUserByIdFromDB(id, sl)
 	if err != nil {
+		//if there is an error fetching from database
 		sl.Logger.Error("Error fetching user from the database:", err)
 		return types.User{}, err
 	}
 
 	//cache the retrieved user so in the future its data can be accessed from the cache
 	userJSON, err := json.Marshal(user)
+	//the user is being marshaled into a JSON byte array and set to the userJSON variable
 	if err == nil {
+		//if there is no error we will also cache this user.
 		sl.Logger.Info("User JSON data being cached: %s", userJSON)
+		//we put the user into the cache with the cacheKey we created earlier, for an hour.
 		err = sc.cache.Set(cacheKey, userJSON, time.Hour)
 		if err != nil {
+			//if there is an error setting the cache
 			sl.Logger.Error("Error caching user data:", err)
 			sl.Logger.Error("Failed to create user with ID %d: %v", id, err)
 		} else {
+			//no error
 			sl.Logger.Info("Successfully cached user data")
 		}
+		//if there is an error marshaling the data
 	} else {
 		sl.Logger.Error("Error marshaling user data:", err)
 	}
+	//we return the user to the handler
 	return user, nil
 }
 
 // handles the GET http request to get user by id
 func (s *MySqlStore) HandleGetUserById(w http.ResponseWriter, r *http.Request, sl *SqlLogger) {
+	//we get the id from the route path
 	userIDStr := strings.TrimPrefix(r.URL.Path, "/users/")
+	//we change the id to int
 	userID, err := strconv.Atoi(userIDStr)
+	//if the id is incorrect, or doesn't match the id we set in the route
 	if err != nil {
 		sl.Logger.HttpError(w, http.StatusBadRequest, "Invalid user id")
 		return //return so the function ends after an error
 	}
 
+	//we attempt to get user from cache
 	cachedUser, err := s.GetUserByIdWithCache(userID, sl)
 	if err != nil {
+		//if there is no
 		sl.Logger.Error("Error getting user from cache:", err)
 		return
 	}
 
+	//if cachedUser ID is not 0, this means the cashed user has an id
 	if cachedUser.ID != 0 {
 		user := cachedUser
 		// User found in cache, use cached data
 
-		// We parse(convert) the dateJoined string into a time value
+		// We parse(convert) the user.DateJoined string into a time value and assign it to the dateJoined reference
 		dateJoined, err := time.Parse("2006-01-02", user.DateJoined)
 		if err != nil {
+			//if there is an error we just want to see what format it is
+			//to have a better understanding
 			sl.Logger.Info("date is in format: %v", user.DateJoined)
+			//we write there was an error parsing into the time object
 			sl.Logger.HttpError(w, http.StatusInternalServerError, "Error parsing into time object")
 			return
 		}
 
+		//we format it in the right format and change it back to string to then marshal
+		//the whole reason we converted to a time value was to be able to call .Format it right before we marshal it
 		user.DateJoined = dateJoined.Format("2006-01-02") // the format has a time receiver and a return of type string
-		jsonResponse, err := json.Marshal(user)
+		jsonResponse, err := json.Marshal(user)           //string format can now be marshaled
 		if err != nil {
 			sl.Logger.HttpError(w, http.StatusInternalServerError, "Error creating JSON response for user by id")
 			return
@@ -229,27 +255,33 @@ func (s *MySqlStore) HandleGetUserById(w http.ResponseWriter, r *http.Request, s
 		return
 	}
 
+	//if the user is not in cache the following executes, we get the user from the database instead of the cache
 	user, err := s.GetUserByIdFromDB(userID, sl)
-	sl.Logger.Info("first check date is in format: %v", user.DateJoined)
+	//we check what format the date is i
+	sl.Logger.Info("user from database check date is in format: %v", user.DateJoined)
 	if err != nil {
+		//if the error is that no rows were found in the sql database, we return the following HttpError
+		//meaning that the id was not found
 		if err == sql.ErrNoRows {
 			sl.Logger.HttpError(w, http.StatusNotFound, err.Error())
 			return
 		}
+		//if there was a different error, not the sql.ErrNoRows then this will be thrown
 		sl.Logger.HttpError(w, http.StatusNotFound, "Error retrieving user by id")
 		return
 	}
 
-	//we parse(convert) the dateJoined string into a time value
+	//we parse(convert) the dateJoined string into a time value, to then format it correctly
 	dateJoined, err := time.Parse("2006-01-02", user.DateJoined)
+	//if there is an error during the parsing from string to time.Time
 	if err != nil {
 		sl.Logger.Info("date is in format: %v", user.DateJoined)
 		sl.Logger.HttpError(w, http.StatusInternalServerError, "Error parsing into time object")
 		return
 	}
-
+	//we parse the time.Time back to string with the correct format to then marshal it
 	user.DateJoined = dateJoined.Format("2006-01-02") //the format has a time receiver and a return of type string
-	jsonResponse, err := json.Marshal(user)
+	jsonResponse, err := json.Marshal(user)           //we marshal it for the jsonResponse
 	if err != nil {
 		sl.Logger.HttpError(w, http.StatusInternalServerError, "Error creating JSON response for user by id")
 	}
@@ -420,18 +452,21 @@ func (s *MySqlStore) HandleGetAllUsers(w http.ResponseWriter, r *http.Request, s
 	pageStr := r.URL.Query().Get("page")
 	pageSizeStr := r.URL.Query().Get("pageSize")
 
-	//Parse page and pageSize values (or use defaults)
+	//Parse page and pageSize string values to int or default values if parsing fails
 	page, err := strconv.Atoi(pageStr)
 	if err != nil || page < 1 {
+		//if parsing fails page is set to default value
 		page = 1
 	}
-
 	pageSize, err := strconv.Atoi(pageSizeStr)
 	if err != nil || pageSize < 1 {
+		//if parsing fails pageSize is set to default value
 		pageSize = 10
 	}
 
 	//Calculate the offset based on page and pageSize
+	//so if we are on page 4 and pageSize(how many records will be shown on a page) is 10, offset would be (4-1) * 10
+	//which would equal to 30, which means the first 30 records will be skipped and we will begin seeing them from record 31
 	offset := (page - 1) * pageSize
 
 	//Call GetUsersWithPagination to retrieve users for the requested page
@@ -457,7 +492,8 @@ func (s *MySqlStore) HandleGetAllUsers(w http.ResponseWriter, r *http.Request, s
 		PageSize:    pageSize,
 		Links:       links,
 	}
-
+	//we range through the response, which has the 10 users based on our pageSize and do the time formatting here too
+	//first from string to time.Time, then format correctly back into string
 	for i := range response.Users {
 		dateJoined, err := time.Parse("2006-01-02", response.Users[i].DateJoined)
 		if err != nil {
@@ -466,7 +502,7 @@ func (s *MySqlStore) HandleGetAllUsers(w http.ResponseWriter, r *http.Request, s
 		}
 		response.Users[i].DateJoined = dateJoined.Format("2006-01-02")
 	}
-
+	//marshal and write the response
 	jsonResponse, err := json.Marshal(response)
 	if err != nil {
 		sl.Logger.HttpError(w, http.StatusInternalServerError, "Error marshalling all users")

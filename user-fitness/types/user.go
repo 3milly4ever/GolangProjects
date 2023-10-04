@@ -2,6 +2,8 @@ package types
 
 import (
 	"fmt"
+
+	"github.com/google/uuid"
 )
 
 type User struct {
@@ -14,6 +16,12 @@ type User struct {
 	DateJoined string `json:"date_joined"`
 
 	Links UserLinks `json:"links"`
+}
+
+type UserCredentials struct {
+	ID       uuid.UUID
+	Email    string `json:"email"`
+	Password string `json:"password"`
 }
 
 type UserLinks struct {
